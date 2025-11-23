@@ -74,7 +74,7 @@ export const DEFAULT_SETTINGS: GraphSettings = {
   nodeLengthScale: 0.05,
   linkDistance: 0, // Default tight
   chargeStrength: -100,
-  colorMode: ColorMode.DEPTH,
+  colorMode: ColorMode.RANDOM,
   showLabels: true,
   showArrows: true,
   labelContent: {

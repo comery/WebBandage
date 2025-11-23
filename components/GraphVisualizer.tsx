@@ -2,7 +2,7 @@ import React, { useEffect, useRef, useState, useMemo } from 'react';
 import * as d3 from 'd3';
 import { GraphData, GraphSettings, AssemblyNode, AssemblyLink, ColorMode, SimulationNode, SimulationLink } from '../types';
 import { formatBasePairs, formatCoverage } from '../services/graphGenerator';
-import { Plus, Minus, Maximize } from 'lucide-react';
+import { Plus, Minus, Maximize, BoxSelect, MousePointer2 } from 'lucide-react';
 
 interface GraphVisualizerProps {
   data: GraphData;
@@ -10,6 +10,7 @@ interface GraphVisualizerProps {
   onSelectionChange: (nodes: AssemblyNode[]) => void;
   selectedNodes: AssemblyNode[];
   isBrushMode: boolean;
+  onToggleBrushMode?: () => void;
 }
 
 const GraphVisualizer: React.FC<GraphVisualizerProps> = ({ 
@@ -17,18 +18,21 @@ const GraphVisualizer: React.FC<GraphVisualizerProps> = ({
   settings, 
   onSelectionChange, 
   selectedNodes,
-  isBrushMode
+  isBrushMode,
+  onToggleBrushMode
 }) => {
   const svgRef = useRef<SVGSVGElement>(null);
-  const simulationRef = useRef<d3.Simulation<SimulationNode, SimulationLink> | null>(null);
-  const zoomRef = useRef<d3.ZoomBehavior<SVGSVGElement, unknown> | null>(null);
   
+  // Refs to store simulation state to prevent re-initialization on simple prop changes
+  const simulationRef = useRef<d3.Simulation<SimulationNode, SimulationLink> | null>(null);
+  const simNodesRef = useRef<SimulationNode[]>([]);
+  const simLinksRef = useRef<SimulationLink[]>([]);
+  const nodeLookup = useRef<Map<string, AssemblyNode>>(new Map());
+  
+  const zoomRef = useRef<d3.ZoomBehavior<SVGSVGElement, unknown> | null>(null);
   const [transform, setTransform] = useState(d3.zoomIdentity);
 
-  // Map to store lookup of original data
-  const nodeLookup = useRef<Map<string, AssemblyNode>>(new Map());
-
-  // Compute colors for RANDOM mode using greedy graph coloring
+  // Compute colors for RANDOM mode
   const randomColorMap = useMemo(() => {
     if (settings.colorMode !== ColorMode.RANDOM) return new Map<string, string>();
 
@@ -101,7 +105,7 @@ const GraphVisualizer: React.FC<GraphVisualizerProps> = ({
     return parts.join('; ');
   };
 
-  // Zoom Control Handlers
+  // Zoom Controls
   const handleZoomIn = () => {
     if (svgRef.current && zoomRef.current) {
       d3.select(svgRef.current).transition().duration(300).call(zoomRef.current.scaleBy, 1.2);
@@ -120,27 +124,16 @@ const GraphVisualizer: React.FC<GraphVisualizerProps> = ({
     }
   };
 
-  // Freeze Physics when Brush Mode is active
-  useEffect(() => {
-    if (simulationRef.current) {
-      if (isBrushMode) {
-        simulationRef.current.stop();
-      } else {
-        simulationRef.current.alpha(0.1).restart();
-      }
-    }
-  }, [isBrushMode]);
-
-  // Main Effect: Setup Simulation and Rendering
+  // 1. Initialize Simulation Logic (Run only when data changes, NOT when isBrushMode changes)
   useEffect(() => {
     if (!svgRef.current) return;
     const width = window.innerWidth;
     const height = window.innerHeight;
 
-    // 1. Prepare Data
+    // Prepare Data
     nodeLookup.current.clear();
-    const simNodes: SimulationNode[] = [];
-    const simLinks: SimulationLink[] = [];
+    const newSimNodes: SimulationNode[] = [];
+    const newSimLinks: SimulationLink[] = [];
 
     data.nodes.forEach(node => {
       nodeLookup.current.set(node.id, node);
@@ -149,12 +142,16 @@ const GraphVisualizer: React.FC<GraphVisualizerProps> = ({
       const cx = width / 2 + (Math.random() - 0.5) * 200;
       const cy = height / 2 + (Math.random() - 0.5) * 200;
 
+      // Check if we have existing positions to preserve
+      const existingStart = simNodesRef.current.find(n => n.id === `${node.id}_start`);
+      const existingEnd = simNodesRef.current.find(n => n.id === `${node.id}_end`);
+
       const startNode: SimulationNode = {
         id: `${node.id}_start`,
         parentId: node.id,
         type: 'start',
-        x: cx - (Math.cos(angle) * length) / 2,
-        y: cy - (Math.sin(angle) * length) / 2,
+        x: existingStart?.x ?? cx - (Math.cos(angle) * length) / 2,
+        y: existingStart?.y ?? cy - (Math.sin(angle) * length) / 2,
         r: settings.nodeWidthScale
       };
 
@@ -162,14 +159,14 @@ const GraphVisualizer: React.FC<GraphVisualizerProps> = ({
         id: `${node.id}_end`,
         parentId: node.id,
         type: 'end',
-        x: cx + (Math.cos(angle) * length) / 2,
-        y: cy + (Math.sin(angle) * length) / 2,
+        x: existingEnd?.x ?? cx + (Math.cos(angle) * length) / 2,
+        y: existingEnd?.y ?? cy + (Math.sin(angle) * length) / 2,
         r: settings.nodeWidthScale
       };
 
-      simNodes.push(startNode, endNode);
+      newSimNodes.push(startNode, endNode);
 
-      simLinks.push({
+      newSimLinks.push({
         id: `${node.id}_backbone`,
         source: startNode.id,
         target: endNode.id,
@@ -179,7 +176,7 @@ const GraphVisualizer: React.FC<GraphVisualizerProps> = ({
     });
 
     data.links.forEach((link, i) => {
-      simLinks.push({
+      newSimLinks.push({
         id: `edge_${i}`,
         source: `${link.source}_end`,
         target: `${link.target}_start`,
@@ -187,73 +184,12 @@ const GraphVisualizer: React.FC<GraphVisualizerProps> = ({
       });
     });
 
-    // 2. Setup D3
-    const svg = d3.select(svgRef.current);
-    svg.selectAll("*").remove();
-    
-    // Background handler for clearing selection
-    svg.on("click", (event) => {
-      if (event.target.tagName === 'svg' && !isBrushMode) {
-        onSelectionChange([]);
-      }
-    });
+    simNodesRef.current = newSimNodes;
+    simLinksRef.current = newSimLinks;
 
-    const defs = svg.append("defs");
-    defs.append("marker")
-      .attr("id", "arrow-head")
-      .attr("viewBox", "0 -5 10 10")
-      .attr("refX", 15)
-      .attr("refY", 0)
-      .attr("markerWidth", 5)
-      .attr("markerHeight", 5)
-      .attr("orient", "auto")
-      .append("path")
-      .attr("fill", "#64748b")
-      .attr("d", "M0,-5L10,0L0,5");
-
-    // Selection Glow Filter
-    const filter = defs.append("filter")
-      .attr("id", "selection-glow")
-      .attr("height", "300%")
-      .attr("width", "300%")
-      .attr("x", "-100%")
-      .attr("y", "-100%");
-    filter.append("feMorphology").attr("operator", "dilate").attr("radius", "3").attr("in", "SourceAlpha").attr("result", "thicken");
-    filter.append("feGaussianBlur").attr("in", "thicken").attr("stdDeviation", "3").attr("result", "blurred");
-    filter.append("feFlood").attr("flood-color", "white").attr("result", "glowColor");
-    filter.append("feComposite").attr("in", "glowColor").attr("in2", "blurred").attr("operator", "in").attr("result", "softGlow");
-    const feMerge = filter.append("feMerge");
-    feMerge.append("feMergeNode").attr("in", "softGlow");
-    feMerge.append("feMergeNode").attr("in", "SourceGraphic");
-
-    // Container Group for Zooming
-    const container = svg.append("g").attr("class", "zoom-container");
-
-    // Zoom Behavior - Filter out brush events
-    const zoom = d3.zoom<SVGSVGElement, unknown>()
-      .scaleExtent([0.1, 5])
-      .filter((event) => {
-        // Disable zoom if in brush mode or right click
-        if (isBrushMode) return false;
-        return !event.button || event.button === 0; // Only left click or touch
-      })
-      .on("zoom", (event) => {
-        container.attr("transform", event.transform);
-        setTransform(event.transform);
-      });
-    
-    zoomRef.current = zoom;
-
-    // Apply zoom behavior to SVG
-    svg.call(zoom);
-    // Restore zoom
-    if (transform.k !== 1 || transform.x !== 0 || transform.y !== 0) {
-       svg.call(zoom.transform, transform);
-    }
-
-    // 3. Simulation Forces
-    const simulation = d3.forceSimulation<SimulationNode, SimulationLink>(simNodes)
-      .force("link", d3.forceLink<SimulationNode, SimulationLink>(simLinks)
+    // Create Simulation
+    const simulation = d3.forceSimulation<SimulationNode, SimulationLink>(newSimNodes)
+      .force("link", d3.forceLink<SimulationNode, SimulationLink>(newSimLinks)
         .id(d => d.id)
         .distance(d => {
            if (d.type === 'backbone' && d.parentId) {
@@ -269,19 +205,134 @@ const GraphVisualizer: React.FC<GraphVisualizerProps> = ({
       .force("collide", d3.forceCollide().radius(settings.nodeWidthScale * 1.5).iterations(2));
 
     simulationRef.current = simulation;
-    
+
     // Force simulation stop if initialized in brush mode
     if (isBrushMode) simulation.stop();
 
-    // 4. Rendering Groups
-    const linkGroup = container.append("g").attr("class", "links");
-    const nodeGroup = container.append("g").attr("class", "nodes");
-    const labelGroup = container.append("g").attr("class", "labels");
+    return () => {
+      simulation.stop();
+    };
+  }, [data, settings.linkDistance, settings.chargeStrength, settings.nodeLengthScale, settings.nodeWidthScale]);
 
-    // Define graph updating function
-    const updateGraph = () => {
+  // 2. Handle Simulation Parameters Updates (Update Forces without resetting)
+  useEffect(() => {
+     const simulation = simulationRef.current;
+     if (!simulation) return;
+
+     simulation.force("charge", d3.forceManyBody().strength(settings.chargeStrength));
+     simulation.force("collide", d3.forceCollide().radius(settings.nodeWidthScale * 1.5).iterations(2));
+     
+     const linkForce = simulation.force("link") as d3.ForceLink<SimulationNode, SimulationLink>;
+     if (linkForce) {
+        linkForce.distance(d => {
+           if (d.type === 'backbone' && d.parentId) {
+             const node = nodeLookup.current.get(d.parentId);
+             return node ? getVisualLength(node.length) : 20;
+           }
+           return settings.linkDistance;
+        });
+     }
+
+     if (!isBrushMode) {
+        simulation.alpha(0.3).restart();
+     }
+  }, [settings]);
+
+
+  // 3. Freeze Logic (Toggle Brush Mode)
+  useEffect(() => {
+    if (simulationRef.current) {
+      if (isBrushMode) {
+        simulationRef.current.stop();
+      } else {
+        simulationRef.current.alpha(0.1).restart();
+      }
+    }
+  }, [isBrushMode]);
+
+
+  // 4. Rendering (Updates DOM)
+  useEffect(() => {
+    if (!svgRef.current) return;
+    const svg = d3.select(svgRef.current);
+    const simulation = simulationRef.current;
+    
+    if (!simulation) return;
+
+    // Setup container only once or if missing
+    let container = svg.select<SVGGElement>("g.zoom-container");
+    if (container.empty()) {
+       svg.selectAll("*").remove();
+       
+        // Background handler
+        svg.on("click", (event) => {
+          if (event.target.tagName === 'svg' && !isBrushMode) {
+            onSelectionChange([]);
+          }
+        });
+
+        const defs = svg.append("defs");
+        defs.append("marker")
+          .attr("id", "arrow-head")
+          .attr("viewBox", "0 -5 10 10")
+          .attr("refX", 15)
+          .attr("refY", 0)
+          .attr("markerWidth", 5)
+          .attr("markerHeight", 5)
+          .attr("orient", "auto")
+          .append("path")
+          .attr("fill", "#64748b")
+          .attr("d", "M0,-5L10,0L0,5");
+
+        // Selection Glow
+        const filter = defs.append("filter")
+          .attr("id", "selection-glow")
+          .attr("height", "300%")
+          .attr("width", "300%")
+          .attr("x", "-100%")
+          .attr("y", "-100%");
+        filter.append("feMorphology").attr("operator", "dilate").attr("radius", "3").attr("in", "SourceAlpha").attr("result", "thicken");
+        filter.append("feGaussianBlur").attr("in", "thicken").attr("stdDeviation", "3").attr("result", "blurred");
+        filter.append("feFlood").attr("flood-color", "white").attr("result", "glowColor");
+        filter.append("feComposite").attr("in", "glowColor").attr("in2", "blurred").attr("operator", "in").attr("result", "softGlow");
+        const feMerge = filter.append("feMerge");
+        feMerge.append("feMergeNode").attr("in", "softGlow");
+        feMerge.append("feMergeNode").attr("in", "SourceGraphic");
+
+        container = svg.append("g").attr("class", "zoom-container");
+        
+        // Groups
+        container.append("g").attr("class", "links");
+        container.append("g").attr("class", "nodes");
+        container.append("g").attr("class", "labels");
+
+        // Zoom Setup
+        const zoom = d3.zoom<SVGSVGElement, unknown>()
+          .scaleExtent([0.1, 5])
+          .on("zoom", (event) => {
+            container.attr("transform", event.transform);
+            setTransform(event.transform);
+          });
+        zoomRef.current = zoom;
+        svg.call(zoom);
+    }
+
+    // Update Zoom Filter dynamically based on isBrushMode
+    if (zoomRef.current) {
+        zoomRef.current.filter((event) => {
+            if (isBrushMode) return false; // Disable zoom in brush mode
+            return !event.button || event.button === 0;
+        });
+    }
+
+    // Render Elements
+    const linkGroup = container.select("g.links");
+    const nodeGroup = container.select("g.nodes");
+    const labelGroup = container.select("g.labels");
+
+    const updateVisuals = () => {
       const edges = linkGroup.selectAll<SVGPathElement, SimulationLink>("path.edge")
-        .data(simLinks.filter(l => l.type === 'edge'))
+        .data(simLinksRef.current.filter(l => l.type === 'edge'), d => (d as any).id)
         .join("path")
         .attr("class", "edge")
         .attr("fill", "none")
@@ -290,7 +341,7 @@ const GraphVisualizer: React.FC<GraphVisualizerProps> = ({
         .attr("marker-end", settings.showArrows ? "url(#arrow-head)" : null);
 
       const contigs = nodeGroup.selectAll<SVGPathElement, AssemblyNode>("path.contig")
-        .data(data.nodes)
+        .data(data.nodes, d => (d as any).id)
         .join("path")
         .attr("class", "contig")
         .attr("id", d => `node-${d.id}`)
@@ -307,7 +358,7 @@ const GraphVisualizer: React.FC<GraphVisualizerProps> = ({
         });
 
       const labels = labelGroup.selectAll<SVGTextElement, AssemblyNode>("text")
-        .data(data.nodes)
+        .data(data.nodes, d => (d as any).id)
         .join("text")
         .text(d => getLabelText(d))
         .attr("font-family", "JetBrains Mono")
@@ -335,8 +386,8 @@ const GraphVisualizer: React.FC<GraphVisualizerProps> = ({
         });
 
         contigs.attr("d", d => {
-          const s = simNodes.find(n => n.id === `${d.id}_start`);
-          const e = simNodes.find(n => n.id === `${d.id}_end`);
+          const s = simNodesRef.current.find(n => n.id === `${d.id}_start`);
+          const e = simNodesRef.current.find(n => n.id === `${d.id}_end`);
           if (s && e && s.x !== undefined && s.y !== undefined && e.x !== undefined && e.y !== undefined) {
              return `M${s.x},${s.y} L${e.x},${e.y}`;
           }
@@ -344,8 +395,8 @@ const GraphVisualizer: React.FC<GraphVisualizerProps> = ({
         });
 
         labels.attr("transform", d => {
-          const s = simNodes.find(n => n.id === `${d.id}_start`);
-          const e = simNodes.find(n => n.id === `${d.id}_end`);
+          const s = simNodesRef.current.find(n => n.id === `${d.id}_start`);
+          const e = simNodesRef.current.find(n => n.id === `${d.id}_end`);
           if (s && e && s.x !== undefined && e.x !== undefined) {
             const mx = (s.x + e.x) / 2;
             const my = (s.y + (e.y || 0)) / 2;
@@ -356,23 +407,23 @@ const GraphVisualizer: React.FC<GraphVisualizerProps> = ({
       });
     };
 
-    updateGraph();
-    
-    // Drag behavior (only active if NOT in brush mode)
+    updateVisuals();
+
+    // Drag Behavior
     const drag = d3.drag<SVGPathElement, AssemblyNode>()
       .filter(() => !isBrushMode)
       .on("start", (e, d) => {
         if (!e.active) simulation.alphaTarget(0.3).restart();
-        const s = simNodes.find(n => n.id === `${d.id}_start`);
-        const end = simNodes.find(n => n.id === `${d.id}_end`);
+        const s = simNodesRef.current.find(n => n.id === `${d.id}_start`);
+        const end = simNodesRef.current.find(n => n.id === `${d.id}_end`);
         if (s && end) {
           s.fx = s.x; s.fy = s.y;
           end.fx = end.x; end.fy = end.y;
         }
       })
       .on("drag", (e, d) => {
-        const s = simNodes.find(n => n.id === `${d.id}_start`);
-        const end = simNodes.find(n => n.id === `${d.id}_end`);
+        const s = simNodesRef.current.find(n => n.id === `${d.id}_start`);
+        const end = simNodesRef.current.find(n => n.id === `${d.id}_end`);
         if (s && end && s.fx !== null && s.fy !== null && end.fx !== null && end.fy !== null) {
           s.fx += e.dx;
           s.fy += e.dy;
@@ -382,22 +433,22 @@ const GraphVisualizer: React.FC<GraphVisualizerProps> = ({
       })
       .on("end", (e, d) => {
         if (!e.active) simulation.alphaTarget(0);
-        const s = simNodes.find(n => n.id === `${d.id}_start`);
-        const end = simNodes.find(n => n.id === `${d.id}_end`);
+        const s = simNodesRef.current.find(n => n.id === `${d.id}_start`);
+        const end = simNodesRef.current.find(n => n.id === `${d.id}_end`);
         if (s && end) {
           s.fx = null; s.fy = null;
           end.fx = null; end.fy = null;
         }
       });
-
+      
     nodeGroup.selectAll("path.contig").call(drag as any);
 
-    return () => {
-      simulation.stop();
-    };
-  }, [data, settings.linkDistance, settings.chargeStrength, settings.nodeLengthScale, settings.nodeWidthScale, settings.showArrows, settings.showLabels, settings.colorMode, settings.labelContent, settings.labelOutline, settings.csvLabels, randomColorMap, isBrushMode]); 
+  }, [data, settings, isBrushMode, randomColorMap]); 
+  // isBrushMode here triggers re-render (cursor, drag filter), 
+  // but because Simulation Initialization logic is in a separate useEffect that DOES NOT depend on isBrushMode, 
+  // positions are preserved.
 
-  // Separate Effect: Selection Highlight (Multiple Nodes)
+  // Separate Effect: Selection Highlight
   useEffect(() => {
     if (!svgRef.current) return;
     const svg = d3.select(svgRef.current);
@@ -431,7 +482,7 @@ const GraphVisualizer: React.FC<GraphVisualizerProps> = ({
            if (!event.selection) return;
            const [[x0, y0], [x1, y1]] = event.selection;
            
-           const simNodes = simulationRef.current?.nodes() || [];
+           const simNodes = simNodesRef.current; // Use updated positions from ref
            const newSelected: AssemblyNode[] = [];
 
            data.nodes.forEach(node => {
@@ -470,10 +521,9 @@ const GraphVisualizer: React.FC<GraphVisualizerProps> = ({
         height="100%"
       >
         <defs></defs>
-        {/* Content injected by D3 */}
       </svg>
 
-      {/* Physical Zoom Controls Overlay */}
+      {/* Physical Zoom Controls Overlay + Freeze Button */}
       <div className="absolute top-20 left-4 flex flex-col gap-2 z-10 print:hidden">
         <button 
           onClick={handleZoomIn}
@@ -495,6 +545,22 @@ const GraphVisualizer: React.FC<GraphVisualizerProps> = ({
           title="Reset View"
         >
           <Maximize size={20} />
+        </button>
+
+        {/* Separator */}
+        <div className="w-full h-px bg-slate-600/50 my-1" />
+
+        {/* Freeze/Select Toggle */}
+        <button
+          onClick={onToggleBrushMode}
+          className={`p-2 backdrop-blur rounded-lg shadow-lg border transition-all active:scale-95 ${
+            isBrushMode
+              ? 'bg-blue-600 text-white border-blue-500'
+              : 'bg-slate-800/80 text-slate-200 border-slate-600/50 hover:bg-slate-700'
+          }`}
+          title={isBrushMode ? "Switch to Move Mode" : "Freeze & Select Area"}
+        >
+          {isBrushMode ? <MousePointer2 size={20} /> : <BoxSelect size={20} />}
         </button>
       </div>
     </div>

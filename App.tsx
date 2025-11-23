@@ -129,6 +129,7 @@ const App: React.FC = () => {
           onSelectionChange={setSelectedNodes}
           selectedNodes={selectedNodes}
           isBrushMode={isBrushMode}
+          onToggleBrushMode={() => setIsBrushMode(!isBrushMode)}
         />
       </div>
 
