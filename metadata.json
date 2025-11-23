@@ -1,0 +1,5 @@
+{
+  "name": "WebBandage",
+  "description": "A high-performance web-based visualization tool for de novo assembly graphs, inspired by Bandage. Analyze contigs, connections, and coverage depth with an interactive force-directed layout.",
+  "requestFramePermissions": []
+}
