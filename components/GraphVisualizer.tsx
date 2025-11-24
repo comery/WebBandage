@@ -129,6 +129,10 @@ const GraphVisualizer: React.FC<GraphVisualizerProps> = ({
     if (!svgRef.current) return;
     const width = window.innerWidth;
     const height = window.innerHeight;
+    if ((settings.minNodesToRender ?? 0) > 0 && data.nodes.length < (settings.minNodesToRender ?? 0)) {
+      simulationRef.current?.stop();
+      return () => {};
+    }
 
     // Prepare Data
     nodeLookup.current.clear();
@@ -256,6 +260,10 @@ const GraphVisualizer: React.FC<GraphVisualizerProps> = ({
     if (!svgRef.current) return;
     const svg = d3.select(svgRef.current);
     const simulation = simulationRef.current;
+    if ((settings.minNodesToRender ?? 0) > 0 && data.nodes.length < (settings.minNodesToRender ?? 0)) {
+      svg.selectAll('*').remove();
+      return;
+    }
     
     if (!simulation) return;
 
@@ -375,7 +383,12 @@ const GraphVisualizer: React.FC<GraphVisualizerProps> = ({
           labels.attr("stroke", "none").style("text-shadow", "0px 1px 2px rgba(0,0,0,0.8)");
       }
 
+      let lastTick = 0;
       simulation.on("tick", () => {
+        const now = performance.now();
+        if (now - lastTick < 16) return;
+        lastTick = now;
+
         edges.attr("d", d => {
           const s = d.source as SimulationNode;
           const t = d.target as SimulationNode;

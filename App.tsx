@@ -3,7 +3,7 @@ import GraphVisualizer from './components/GraphVisualizer';
 import ControlPanel from './components/ControlPanel';
 import { GraphData, GraphSettings, DEFAULT_SETTINGS, AssemblyNode } from './types';
 import { generateMockAssemblyGraph } from './services/graphGenerator';
-import { parseGFA } from './services/gfaParser';
+import { parseGFAAsync } from './services/gfaParser';
 import { Download, Menu, X, FileText, Image, MousePointer2, BoxSelect } from 'lucide-react';
 
 const App: React.FC = () => {
@@ -14,22 +14,51 @@ const App: React.FC = () => {
   // Selection State
   const [selectedNodes, setSelectedNodes] = useState<AssemblyNode[]>([]);
   const [isBrushMode, setIsBrushMode] = useState(false);
+  
+  // Parsing State
+  const [isParsing, setIsParsing] = useState(false);
+  const [parsingProgress, setParsingProgress] = useState(0);
+  const [uploadedGfaContent, setUploadedGfaContent] = useState<string | null>(null);
+  const [abortController, setAbortController] = useState<AbortController | null>(null);
 
   const regenerateGraph = useCallback(() => {
     setData(generateMockAssemblyGraph(Math.floor(Math.random() * 30) + 20));
     setSelectedNodes([]);
   }, []);
 
-  const handleGFAImport = useCallback((content: string) => {
+  const handleGFAUploadContent = useCallback((content: string) => {
+    setUploadedGfaContent(content);
+    setParsingProgress(0);
+    setIsParsing(false);
+  }, []);
+
+  const handleStartDraw = useCallback(async () => {
+    if (!uploadedGfaContent) return;
     try {
-      const newData = parseGFA(content);
+      const controller = new AbortController();
+      setAbortController(controller);
+      setIsParsing(true);
+      setParsingProgress(0);
+      const newData = await parseGFAAsync(uploadedGfaContent, (done, total) => {
+        setParsingProgress(total ? done / total : 0);
+      }, controller.signal);
       setData(newData);
       setSelectedNodes([]);
-    } catch (e) {
-      console.error("Failed to parse GFA", e);
-      alert("Failed to parse GFA file. Please check the format.");
+      setParsingProgress(1);
+    } catch (e: any) {
+      if (e?.name !== 'AbortError') {
+        console.error("Failed to parse GFA", e);
+        alert("Failed to parse GFA file. Please check the format.");
+      }
+    } finally {
+      setIsParsing(false);
+      setAbortController(null);
     }
-  }, []);
+  }, [uploadedGfaContent]);
+
+  const handleCancelDraw = useCallback(() => {
+    abortController?.abort();
+  }, [abortController]);
 
   const handleExportSvg = () => {
     const svgElement = document.querySelector('svg');
@@ -112,10 +141,15 @@ const App: React.FC = () => {
           settings={settings}
           onSettingsChange={setSettings}
           onRegenerate={regenerateGraph}
-          onImportGFA={handleGFAImport}
+          onUploadGFA={handleGFAUploadContent}
+          onStartDraw={handleStartDraw}
+          onCancelDraw={handleCancelDraw}
           isOpen={isSidebarOpen}
           toggleOpen={() => setIsSidebarOpen(!isSidebarOpen)}
           selectedNodes={selectedNodes}
+          hasUploaded={!!uploadedGfaContent}
+          isParsing={isParsing}
+          parsingProgress={parsingProgress}
         />
       </div>
 

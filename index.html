@@ -51,5 +51,14 @@
 </head>
   <body>
     <div id="root"></div>
+    <script type="module">
+      import React from 'react';
+      import { createRoot } from 'react-dom/client';
+      import App from '/App.tsx';
+      const root = document.getElementById('root');
+      if (root) {
+        createRoot(root).render(React.createElement(App));
+      }
+    </script>
   </body>
 </html>

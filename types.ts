@@ -67,6 +67,7 @@ export interface GraphSettings {
   };
   labelOutline: boolean;
   csvLabels: Record<string, string>; // Store uploaded CSV labels
+  minNodesToRender?: number;
 }
 
 export const DEFAULT_SETTINGS: GraphSettings = {
@@ -86,5 +87,6 @@ export const DEFAULT_SETTINGS: GraphSettings = {
     csv: false
   },
   labelOutline: true,
-  csvLabels: {}
+  csvLabels: {},
+  minNodesToRender: 0
 };

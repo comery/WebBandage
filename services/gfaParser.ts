@@ -73,3 +73,78 @@ export const parseGFA = (gfaContent: string): GraphData => {
 
   return { nodes, links };
 };
+
+export const parseGFAAsync = async (
+  gfaContent: string,
+  onProgress?: (done: number, total: number) => void,
+  signal?: AbortSignal
+): Promise<GraphData> => {
+  const nodes: AssemblyNode[] = [];
+  const links: AssemblyLink[] = [];
+  const nodeMap = new Map<string, AssemblyNode>();
+
+  const lines = gfaContent.split('\n');
+  const total = lines.length;
+  const batch = 5000;
+
+  for (let i = 0; i < total; i++) {
+    if (signal?.aborted) {
+      const err = new Error('Aborted');
+      (err as any).name = 'AbortError';
+      throw err;
+    }
+    const line = lines[i];
+    const parts = line.trim().split('\t');
+    if (parts.length === 0) continue;
+
+    const type = parts[0];
+
+    if (type === 'S') {
+      const id = parts[1];
+      const sequence = parts[2] === '*' ? undefined : parts[2];
+      let length = sequence ? sequence.length : 0;
+      let coverage = 1.0;
+      for (let j = 3; j < parts.length; j++) {
+        const tagParts = parts[j].split(':');
+        if (tagParts.length >= 3) {
+          const tagName = tagParts[0];
+          const tagType = tagParts[1];
+          const tagValue = tagParts[2];
+          if (tagName === 'LN' && tagType === 'i') {
+            length = parseInt(tagValue, 10);
+          } else if (tagName === 'DP' && tagType === 'f') {
+            coverage = parseFloat(tagValue);
+          } else if (tagName === 'KC' && tagType === 'i') {
+            const kc = parseInt(tagValue, 10);
+            if (coverage === 1.0 && length > 0) {
+              coverage = kc / length;
+            }
+          }
+        }
+      }
+      const node: AssemblyNode = { id, length, coverage, sequence };
+      nodes.push(node);
+      nodeMap.set(id, node);
+    } else if (type === 'L') {
+      if (parts.length >= 6) {
+        const source = parts[1];
+        const target = parts[3];
+        const overlapStr = parts[5];
+        let overlap = 0;
+        const overlapMatch = overlapStr.match(/(\d+)/);
+        if (overlapMatch) {
+          overlap = parseInt(overlapMatch[1], 10);
+        }
+        links.push({ id: `link_${source}_${target}_${links.length}`, source, target, overlap });
+      }
+    }
+
+    if (i % batch === 0) {
+      onProgress?.(i, total);
+      await new Promise(requestAnimationFrame);
+    }
+  }
+
+  onProgress?.(total, total);
+  return { nodes, links };
+};

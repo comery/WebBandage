@@ -1,15 +1,20 @@
 import React, { useState, useRef, useMemo } from 'react';
 import { GraphSettings, ColorMode, AssemblyNode } from '../types';
-import { Settings, Activity, Layers, Share2, RefreshCw, ChevronDown, ChevronRight, Eye, Move, Type, Info, Upload, FileInput } from 'lucide-react';
+import { Settings, Activity, Layers, Share2, RefreshCw, ChevronDown, ChevronRight, Eye, Move, Type, Info, Upload, FileInput, CheckCircle, Play, XCircle } from 'lucide-react';
 
 interface ControlPanelProps {
   settings: GraphSettings;
   onSettingsChange: (newSettings: GraphSettings) => void;
   onRegenerate: () => void;
-  onImportGFA: (content: string) => void;
+  onUploadGFA: (content: string) => void;
+  onStartDraw: () => void;
+  onCancelDraw: () => void;
   isOpen: boolean;
   toggleOpen: () => void;
   selectedNodes: AssemblyNode[];
+  hasUploaded?: boolean;
+  isParsing?: boolean;
+  parsingProgress?: number;
 }
 
 const ControlSection: React.FC<{
@@ -44,13 +49,19 @@ const ControlPanel: React.FC<ControlPanelProps> = ({
   settings,
   onSettingsChange,
   onRegenerate,
-  onImportGFA,
+  onUploadGFA,
+  onStartDraw,
+  onCancelDraw,
   isOpen,
   toggleOpen,
-  selectedNodes
+  selectedNodes,
+  hasUploaded,
+  isParsing,
+  parsingProgress
 }) => {
   const fileInputRef = useRef<HTMLInputElement>(null);
   const gfaInputRef = useRef<HTMLInputElement>(null);
+  const [gfaUploaded, setGfaUploaded] = useState(false);
 
   const handleChange = <K extends keyof GraphSettings>(key: K, value: GraphSettings[K]) => {
     onSettingsChange({ ...settings, [key]: value });
@@ -107,7 +118,10 @@ const ControlPanel: React.FC<ControlPanelProps> = ({
     const reader = new FileReader();
     reader.onload = (e) => {
       const text = e.target?.result as string;
-      if (text) onImportGFA(text);
+      if (text) {
+        onUploadGFA(text);
+        setGfaUploaded(true);
+      }
     };
     reader.readAsText(file);
     if (gfaInputRef.current) gfaInputRef.current.value = '';
@@ -197,13 +211,21 @@ const ControlPanel: React.FC<ControlPanelProps> = ({
           <div className="space-y-3">
             <div>
               <label className="text-xs text-slate-400 mb-2 block">Import Data</label>
-              <button
-                onClick={() => gfaInputRef.current?.click()}
-                className="w-full py-2 px-4 bg-blue-700 hover:bg-blue-600 text-white text-sm rounded-lg flex items-center justify-center gap-2 transition-colors border border-blue-600"
-              >
-                <FileInput size={14} />
-                Upload GFA File
-              </button>
+              <div className="w-full flex items-center gap-2">
+                <button
+                  onClick={() => { setGfaUploaded(false); gfaInputRef.current?.click(); }}
+                  className="flex-1 py-2 px-4 bg-blue-700 hover:bg-blue-600 text-white text-sm rounded-lg flex items-center justify-center gap-2 transition-colors border border-blue-600"
+                >
+                  <FileInput size={14} />
+                  Upload GFA File
+                </button>
+                {gfaUploaded && (
+                  <span className="flex items-center gap-1 text-green-400 text-xs font-semibold">
+                    <CheckCircle size={14} />
+                    finished
+                  </span>
+                )}
+              </div>
               <input 
                   type="file" 
                   ref={gfaInputRef}
@@ -211,6 +233,36 @@ const ControlPanel: React.FC<ControlPanelProps> = ({
                   accept=".gfa,.txt"
                   className="hidden"
               />
+              <div className="mt-2 w-full flex items-center gap-2">
+                <button
+                  onClick={onStartDraw}
+                  disabled={!hasUploaded || isParsing}
+                  className={`flex-1 py-2 px-4 rounded-lg text-sm flex items-center justify-center gap-2 transition-colors border ${(!hasUploaded || isParsing) ? 'bg-slate-700 text-slate-400 border-slate-600 cursor-not-allowed' : 'bg-emerald-700 hover:bg-emerald-600 text-white border-emerald-600'}`}
+                >
+                  <Play size={14} />
+                  Draw
+                </button>
+                {isParsing && (
+                  <button
+                    onClick={onCancelDraw}
+                    className="py-2 px-3 bg-red-700 hover:bg-red-600 text-white text-sm rounded-lg flex items-center justify-center gap-2 transition-colors border border-red-600"
+                  >
+                    <XCircle size={14} />
+                    Cancel
+                  </button>
+                )}
+                {isParsing ? (
+                  <span className="flex items-center gap-1 text-yellow-300 text-xs font-semibold">
+                    <RefreshCw size={14} className="animate-spin" />
+                    {Math.round((parsingProgress ?? 0) * 100)}%
+                  </span>
+                ) : ((parsingProgress ?? 0) >= 1 && hasUploaded && (
+                  <span className="flex items-center gap-1 text-green-400 text-xs font-semibold">
+                    <CheckCircle size={14} />
+                    finished
+                  </span>
+                ))}
+              </div>
             </div>
 
             <div className="border-t border-slate-700 pt-3">
@@ -365,6 +417,20 @@ const ControlPanel: React.FC<ControlPanelProps> = ({
           </div>
           <div>
             <label className="flex justify-between text-xs text-slate-400 mb-2">
+              Minimum Nodes
+              <span>{settings.minNodesToRender ?? 0}</span>
+            </label>
+            <input
+              type="range"
+              min="0"
+              max="1000"
+              value={settings.minNodesToRender ?? 0}
+              onChange={(e) => handleChange('minNodesToRender', Number(e.target.value))}
+              className="w-full h-1 bg-slate-700 rounded-lg appearance-none cursor-pointer accent-blue-500"
+            />
+          </div>
+          <div>
+            <label className="flex justify-between text-xs text-slate-400 mb-2">
               Link Distance
               <span>{settings.linkDistance}</span>
             </label>
@@ -398,7 +464,7 @@ const ControlPanel: React.FC<ControlPanelProps> = ({
           <div>
             <label className="text-xs text-slate-400 mb-2 block">Color Scheme</label>
             <div className="grid grid-cols-2 gap-1 bg-slate-900 p-1 rounded-lg">
-              {[ColorMode.DEPTH, ColorMode.LENGTH, ColorMode.RANDOM, ColorMode.UNIFORM].map((mode) => (
+              {[ColorMode.RANDOM, ColorMode.LENGTH, ColorMode.DEPTH, ColorMode.UNIFORM].map((mode) => (
                 <button
                   key={mode}
                   onClick={() => handleChange('colorMode', mode)}
