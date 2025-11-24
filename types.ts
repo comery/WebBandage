@@ -56,6 +56,7 @@ export interface GraphSettings {
   colorMode: ColorMode;
   showLabels: boolean;
   showArrows: boolean;
+  lightBackground?: boolean;
   // Detailed label settings
   labelContent: {
     custom: boolean;
@@ -78,6 +79,7 @@ export const DEFAULT_SETTINGS: GraphSettings = {
   colorMode: ColorMode.RANDOM,
   showLabels: true,
   showArrows: true,
+  lightBackground: false,
   labelContent: {
     custom: false,
     length: false,

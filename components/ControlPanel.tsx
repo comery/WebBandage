@@ -9,12 +9,18 @@ interface ControlPanelProps {
   onUploadGFA: (content: string) => void;
   onStartDraw: () => void;
   onCancelDraw: () => void;
+  onSearchIds: (input: string) => void;
   isOpen: boolean;
   toggleOpen: () => void;
   selectedNodes: AssemblyNode[];
   hasUploaded?: boolean;
   isParsing?: boolean;
   parsingProgress?: number;
+  demoFiles?: { path: string; name: string }[];
+  selectedDemoPath?: string;
+  onSelectDemoPath?: (p: string) => void;
+  onLoadSelectedDemo?: () => void;
+  searchSummary?: { total: number; found: number; notFound: string[] } | null;
 }
 
 const ControlSection: React.FC<{
@@ -52,16 +58,23 @@ const ControlPanel: React.FC<ControlPanelProps> = ({
   onUploadGFA,
   onStartDraw,
   onCancelDraw,
+  onSearchIds,
   isOpen,
   toggleOpen,
   selectedNodes,
   hasUploaded,
   isParsing,
-  parsingProgress
+  parsingProgress,
+  demoFiles,
+  selectedDemoPath,
+  onSelectDemoPath,
+  onLoadSelectedDemo,
+  searchSummary
 }) => {
   const fileInputRef = useRef<HTMLInputElement>(null);
   const gfaInputRef = useRef<HTMLInputElement>(null);
   const [gfaUploaded, setGfaUploaded] = useState(false);
+  const [searchInput, setSearchInput] = useState('');
 
   const handleChange = <K extends keyof GraphSettings>(key: K, value: GraphSettings[K]) => {
     onSettingsChange({ ...settings, [key]: value });
@@ -115,6 +128,7 @@ const ControlPanel: React.FC<ControlPanelProps> = ({
   const handleGfaUpload = (event: React.ChangeEvent<HTMLInputElement>) => {
     const file = event.target.files?.[0];
     if (!file) return;
+    // Reset selected nodes before parsing
     const reader = new FileReader();
     reader.onload = (e) => {
       const text = e.target?.result as string;
@@ -156,7 +170,7 @@ const ControlPanel: React.FC<ControlPanelProps> = ({
       </div>
 
       {/* Scrollable Content */}
-      <div className="flex-1 overflow-y-auto custom-scrollbar">
+      <div className={`flex-1 overflow-y-auto custom-scrollbar ${isParsing ? 'opacity-50 pointer-events-none' : ''}`}>
         
         {/* Selection Info */}
         <div className="p-4 bg-blue-900/10 border-b border-blue-900/30">
@@ -232,6 +246,7 @@ const ControlPanel: React.FC<ControlPanelProps> = ({
                   onChange={handleGfaUpload}
                   accept=".gfa,.txt"
                   className="hidden"
+                  disabled={isParsing}
               />
               <div className="mt-2 w-full flex items-center gap-2">
                 <button
@@ -267,13 +282,56 @@ const ControlPanel: React.FC<ControlPanelProps> = ({
 
             <div className="border-t border-slate-700 pt-3">
               <label className="text-xs text-slate-400 mb-2 block">Demo Data</label>
+              <div className="flex items-center gap-2">
+                <select
+                  value={selectedDemoPath ?? ''}
+                  onChange={(e) => onSelectDemoPath?.(e.target.value)}
+                  className="flex-1 bg-slate-800 border border-slate-700 text-slate-200 text-sm rounded-lg px-2 py-2"
+                >
+                  {(demoFiles ?? []).map(f => (
+                    <option key={f.path} value={f.path}>{f.name}</option>
+                  ))}
+                </select>
+                <button
+                  onClick={onLoadSelectedDemo}
+                  disabled={isParsing}
+                  className="py-2 px-3 bg-slate-700 hover:bg-slate-600 text-white text-sm rounded-lg transition-colors border border-slate-600"
+                >
+                  Load
+                </button>
+              </div>
+            </div>
+          </div>
+        </ControlSection>
+
+        <ControlSection title="Search" icon={<Layers size={16} />} defaultOpen={true}>
+          <div className="space-y-3">
+            <div className="flex items-center gap-2">
+              <input
+                type="text"
+                value={searchInput}
+                onChange={(e) => setSearchInput(e.target.value)}
+                placeholder="Enter Node IDs separated by , ; or space"
+                className="flex-1 px-3 py-2 bg-slate-800 text-slate-200 border border-slate-700 rounded-lg text-sm"
+              />
               <button
-                onClick={onRegenerate}
-                className="w-full py-2 px-4 bg-slate-700 hover:bg-slate-600 text-white text-sm rounded-lg flex items-center justify-center gap-2 transition-colors border border-slate-600"
+                onClick={() => onSearchIds(searchInput)}
+                className="py-2 px-3 bg-blue-700 hover:bg-blue-600 text-white text-sm rounded-lg transition-colors border border-blue-600"
               >
-                <RefreshCw size={14} />
-                Randomize Dataset
+                Search
               </button>
+            </div>
+            <div className="text-xs text-slate-400">
+              {searchSummary ? (
+                <span>
+                  Total: {searchSummary.total}, Found: {searchSummary.found}
+                  {searchSummary.notFound.length > 0 && (
+                    <span> , Not Found: {searchSummary.notFound.join(', ')}</span>
+                  )}
+                </span>
+              ) : (
+                <span>Enter one or more Node IDs to search</span>
+              )}
             </div>
           </div>
         </ControlSection>
@@ -498,6 +556,18 @@ const ControlPanel: React.FC<ControlPanelProps> = ({
             >
               <div className={`absolute top-1 left-1 w-3 h-3 bg-white rounded-full transition-transform ${settings.showArrows ? 'translate-x-4' : ''}`} />
             </button>
+          </div>
+
+          <div className="border-t border-slate-700 mt-3 pt-3">
+            <label className="flex items-center justify-between cursor-pointer text-sm text-slate-300">
+              <span>Background light</span>
+              <button
+                onClick={() => handleChange('lightBackground', !settings.lightBackground)}
+                className={`w-9 h-5 rounded-full transition-colors relative ${settings.lightBackground ? 'bg-blue-500' : 'bg-slate-700'}`}
+              >
+                <div className={`absolute top-1 left-1 w-3 h-3 bg-white rounded-full transition-transform ${settings.lightBackground ? 'translate-x-4' : ''}`} />
+              </button>
+            </label>
           </div>
         </ControlSection>
       </div>

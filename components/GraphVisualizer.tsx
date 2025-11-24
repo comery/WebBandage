@@ -31,6 +31,37 @@ const GraphVisualizer: React.FC<GraphVisualizerProps> = ({
   
   const zoomRef = useRef<d3.ZoomBehavior<SVGSVGElement, unknown> | null>(null);
   const [transform, setTransform] = useState(d3.zoomIdentity);
+  const filteredData = useMemo<GraphData>(() => {
+    const t = settings.minNodesToRender ?? 0;
+    if (!t || t <= 0) return data;
+    const adj = new Map<string, Set<string>>();
+    data.nodes.forEach(n => adj.set(n.id, new Set()));
+    data.links.forEach(l => {
+      adj.get(l.source)?.add(l.target);
+      adj.get(l.target)?.add(l.source);
+    });
+    const visited = new Set<string>();
+    const keep = new Set<string>();
+    for (const n of data.nodes) {
+      if (visited.has(n.id)) continue;
+      const queue: string[] = [n.id];
+      const comp: string[] = [];
+      visited.add(n.id);
+      while (queue.length) {
+        const u = queue.pop() as string;
+        comp.push(u);
+        const neighbors = adj.get(u) || new Set<string>();
+        neighbors.forEach(v => {
+          if (!visited.has(v)) { visited.add(v); queue.push(v); }
+        });
+      }
+      if (comp.length >= t) comp.forEach(id => keep.add(id));
+    }
+    const nodes = data.nodes.filter(n => keep.has(n.id));
+    const links = data.links.filter(l => keep.has(l.source) && keep.has(l.target));
+    return { nodes, links };
+  }, [data, settings.minNodesToRender]);
+  const hiddenByMinNodes = (settings.minNodesToRender ?? 0) > 0 && filteredData.nodes.length === 0;
 
   // Compute colors for RANDOM mode
   const randomColorMap = useMemo(() => {
@@ -129,8 +160,9 @@ const GraphVisualizer: React.FC<GraphVisualizerProps> = ({
     if (!svgRef.current) return;
     const width = window.innerWidth;
     const height = window.innerHeight;
-    if ((settings.minNodesToRender ?? 0) > 0 && data.nodes.length < (settings.minNodesToRender ?? 0)) {
+    if (hiddenByMinNodes) {
       simulationRef.current?.stop();
+      d3.select(svgRef.current).selectAll('*').remove();
       return () => {};
     }
 
@@ -139,7 +171,7 @@ const GraphVisualizer: React.FC<GraphVisualizerProps> = ({
     const newSimNodes: SimulationNode[] = [];
     const newSimLinks: SimulationLink[] = [];
 
-    data.nodes.forEach(node => {
+    filteredData.nodes.forEach(node => {
       nodeLookup.current.set(node.id, node);
       const length = getVisualLength(node.length);
       const angle = Math.random() * Math.PI * 2;
@@ -179,7 +211,7 @@ const GraphVisualizer: React.FC<GraphVisualizerProps> = ({
       });
     });
 
-    data.links.forEach((link, i) => {
+    filteredData.links.forEach((link, i) => {
       newSimLinks.push({
         id: `edge_${i}`,
         source: `${link.source}_end`,
@@ -216,7 +248,7 @@ const GraphVisualizer: React.FC<GraphVisualizerProps> = ({
     return () => {
       simulation.stop();
     };
-  }, [data, settings.linkDistance, settings.chargeStrength, settings.nodeLengthScale, settings.nodeWidthScale]);
+  }, [filteredData, data, settings.linkDistance, settings.chargeStrength, settings.nodeLengthScale, settings.nodeWidthScale, settings.minNodesToRender]);
 
   // 2. Handle Simulation Parameters Updates (Update Forces without resetting)
   useEffect(() => {
@@ -260,7 +292,10 @@ const GraphVisualizer: React.FC<GraphVisualizerProps> = ({
     if (!svgRef.current) return;
     const svg = d3.select(svgRef.current);
     const simulation = simulationRef.current;
-    if ((settings.minNodesToRender ?? 0) > 0 && data.nodes.length < (settings.minNodesToRender ?? 0)) {
+    if (hiddenByMinNodes) {
+      simulation?.stop();
+      simNodesRef.current = [];
+      simLinksRef.current = [];
       svg.selectAll('*').remove();
       return;
     }
@@ -268,18 +303,19 @@ const GraphVisualizer: React.FC<GraphVisualizerProps> = ({
     if (!simulation) return;
 
     // Setup container only once or if missing
-    let container = svg.select<SVGGElement>("g.zoom-container");
+    let container = svg.select("g.zoom-container") as d3.Selection<SVGGElement, unknown, null, unknown>;
     if (container.empty()) {
        svg.selectAll("*").remove();
        
         // Background handler
-        svg.on("click", (event) => {
-          if (event.target.tagName === 'svg' && !isBrushMode) {
+        svg.on("click", (event: any) => {
+          const target = event?.target as Element | null;
+          if (target && target.tagName === 'svg' && !isBrushMode) {
             onSelectionChange([]);
           }
         });
 
-        const defs = svg.append("defs");
+        const defs = svg.select('defs').empty() ? svg.append("defs") : svg.select('defs');
         defs.append("marker")
           .attr("id", "arrow-head")
           .attr("viewBox", "0 -5 10 10")
@@ -327,9 +363,10 @@ const GraphVisualizer: React.FC<GraphVisualizerProps> = ({
 
     // Update Zoom Filter dynamically based on isBrushMode
     if (zoomRef.current) {
-        zoomRef.current.filter((event) => {
-            if (isBrushMode) return false; // Disable zoom in brush mode
-            return !event.button || event.button === 0;
+        zoomRef.current.filter((event: any) => {
+            if (isBrushMode) return false;
+            const btn = event?.button;
+            return btn == null || btn === 0;
         });
     }
 
@@ -349,7 +386,7 @@ const GraphVisualizer: React.FC<GraphVisualizerProps> = ({
         .attr("marker-end", settings.showArrows ? "url(#arrow-head)" : null);
 
       const contigs = nodeGroup.selectAll<SVGPathElement, AssemblyNode>("path.contig")
-        .data(data.nodes, d => (d as any).id)
+        .data(filteredData.nodes, d => (d as any).id)
         .join("path")
         .attr("class", "contig")
         .attr("id", d => `node-${d.id}`)
@@ -366,21 +403,27 @@ const GraphVisualizer: React.FC<GraphVisualizerProps> = ({
         });
 
       const labels = labelGroup.selectAll<SVGTextElement, AssemblyNode>("text")
-        .data(data.nodes, d => (d as any).id)
+        .data(filteredData.nodes, d => (d as any).id)
         .join("text")
         .text(d => getLabelText(d))
         .attr("font-family", "JetBrains Mono")
         .attr("font-size", "10px")
-        .attr("fill", "white")
+        .attr("fill", settings.lightBackground ? "#111" : "white")
         .attr("text-anchor", "middle")
         .attr("dominant-baseline", "middle")
         .attr("pointer-events", "none")
         .style("opacity", settings.showLabels ? 1 : 0);
 
       if (settings.labelOutline) {
-          labels.attr("stroke", "black").attr("stroke-width", 2).attr("paint-order", "stroke");
+          labels
+            .attr("stroke", settings.lightBackground ? "#ffffff" : "#000000")
+            .attr("stroke-width", settings.lightBackground ? 3 : 2)
+            .attr("paint-order", "stroke")
+            .style("text-shadow", "none");
       } else {
-          labels.attr("stroke", "none").style("text-shadow", "0px 1px 2px rgba(0,0,0,0.8)");
+          labels
+            .attr("stroke", "none")
+            .style("text-shadow", settings.lightBackground ? "0px 1px 1px rgba(0,0,0,0.2)" : "0px 1px 2px rgba(0,0,0,0.8)");
       }
 
       let lastTick = 0;
@@ -456,7 +499,7 @@ const GraphVisualizer: React.FC<GraphVisualizerProps> = ({
       
     nodeGroup.selectAll("path.contig").call(drag as any);
 
-  }, [data, settings, isBrushMode, randomColorMap]); 
+  }, [filteredData, data, settings, isBrushMode, randomColorMap]); 
   // isBrushMode here triggers re-render (cursor, drag filter), 
   // but because Simulation Initialization logic is in a separate useEffect that DOES NOT depend on isBrushMode, 
   // positions are preserved.
@@ -479,7 +522,7 @@ const GraphVisualizer: React.FC<GraphVisualizerProps> = ({
         contigs.filter(d => d.id === node.id).raise();
       });
     }
-  }, [selectedNodes, data, settings]);
+  }, [selectedNodes, filteredData, settings]);
 
   // Separate Effect: Brush Logic
   useEffect(() => {
@@ -495,10 +538,10 @@ const GraphVisualizer: React.FC<GraphVisualizerProps> = ({
            if (!event.selection) return;
            const [[x0, y0], [x1, y1]] = event.selection;
            
-           const simNodes = simNodesRef.current; // Use updated positions from ref
+           const simNodes = simNodesRef.current;
            const newSelected: AssemblyNode[] = [];
 
-           data.nodes.forEach(node => {
+           filteredData.nodes.forEach(node => {
              const s = simNodes.find(n => n.id === `${node.id}_start`);
              const e = simNodes.find(n => n.id === `${node.id}_end`);
              
@@ -523,11 +566,83 @@ const GraphVisualizer: React.FC<GraphVisualizerProps> = ({
         .attr("class", "brush-group")
         .call(brush);
     }
-  }, [isBrushMode, data, transform, onSelectionChange]);
+  }, [isBrushMode, filteredData, transform, onSelectionChange]);
+
+  useEffect(() => {
+    if (!svgRef.current) return;
+    const svg = d3.select(svgRef.current);
+    svg.select('.selection-drag-layer').remove();
+    if (!(isBrushMode && selectedNodes.length > 0)) return;
+
+    const dragLayer = svg.append('rect')
+      .attr('class', 'selection-drag-layer')
+      .attr('x', 0)
+      .attr('y', 0)
+      .attr('width', '100%')
+      .attr('height', '100%')
+      .style('fill', 'none')
+      .style('pointer-events', 'all');
+
+    const drag = d3.drag<SVGRectElement, unknown>()
+      .on('drag', (e) => {
+        const dx = e.dx / transform.k;
+        const dy = e.dy / transform.k;
+        selectedNodes.forEach(node => {
+          const s = simNodesRef.current.find(n => n.id === `${node.id}_start`);
+          const end = simNodesRef.current.find(n => n.id === `${node.id}_end`);
+          if (s && end) {
+            if (s.x != null) s.x += dx; if (s.y != null) s.y += dy;
+            if (end.x != null) end.x += dx; if (end.y != null) end.y += dy;
+            if (s.fx != null) s.fx += dx; if (s.fy != null) s.fy += dy;
+            if (end.fx != null) end.fx += dx; if (end.fy != null) end.fy += dy;
+          }
+        });
+
+        const container = svg.select('g.zoom-container');
+        const linkGroup = container.select('g.links');
+        const nodeGroup = container.select('g.nodes');
+        const labelGroup = container.select('g.labels');
+
+        linkGroup.selectAll<SVGPathElement, SimulationLink>('path.edge')
+          .attr('d', d => {
+            const s = d.source as SimulationNode;
+            const t = d.target as SimulationNode;
+            if (s.x !== undefined && s.y !== undefined && t.x !== undefined && t.y !== undefined) {
+               return `M${s.x},${s.y} L${t.x},${t.y}`;
+            }
+            return '';
+          });
+
+        nodeGroup.selectAll<SVGPathElement, AssemblyNode>('path.contig')
+          .attr('d', d => {
+            const s = simNodesRef.current.find(n => n.id === `${d.id}_start`);
+            const e2 = simNodesRef.current.find(n => n.id === `${d.id}_end`);
+            if (s && e2 && s.x !== undefined && s.y !== undefined && e2.x !== undefined && e2.y !== undefined) {
+               return `M${s.x},${s.y} L${e2.x},${e2.y}`;
+            }
+            return '';
+          });
+
+        labelGroup.selectAll<SVGTextElement, AssemblyNode>('text')
+          .attr('transform', d => {
+            const s = simNodesRef.current.find(n => n.id === `${d.id}_start`);
+            const e2 = simNodesRef.current.find(n => n.id === `${d.id}_end`);
+            if (s && e2 && s.x !== undefined && e2.x !== undefined) {
+              const mx = (s.x + e2.x) / 2;
+              const my = (s.y + (e2.y || 0)) / 2;
+              return `translate(${mx}, ${my})`;
+            }
+            return 'translate(0,0)';
+          });
+      });
+
+    dragLayer.call(drag as any);
+  }, [isBrushMode, selectedNodes, transform]);
 
   return (
-    <div className="relative w-full h-full bg-canvas overflow-hidden">
+    <div className={`relative w-full h-full overflow-hidden print:overflow-visible ${settings.lightBackground ? 'bg-white' : 'bg-canvas'}`}>
       <svg
+        id="main-graph-svg"
         ref={svgRef}
         className={`w-full h-full block touch-none ${isBrushMode ? 'cursor-crosshair' : ''}`}
         width="100%"
@@ -535,6 +650,12 @@ const GraphVisualizer: React.FC<GraphVisualizerProps> = ({
       >
         <defs></defs>
       </svg>
+
+      {hiddenByMinNodes && (
+        <div className="absolute inset-0 flex items-center justify-center text-slate-300 text-sm print:hidden">
+          Graph hidden: fewer than minimum nodes
+        </div>
+      )}
 
       {/* Physical Zoom Controls Overlay + Freeze Button */}
       <div className="absolute top-20 left-4 flex flex-col gap-2 z-10 print:hidden">

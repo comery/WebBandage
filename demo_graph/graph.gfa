@@ -1,0 +1,40 @@
+H	VN:Z:1.0
+S	ctg_1	*	LN:i:1500	DP:f:35
+S	ctg_2	*	LN:i:1200	DP:f:28
+S	ctg_3	*	LN:i:1800	DP:f:42
+S	ctg_4	*	LN:i:900	DP:f:25
+S	ctg_5	*	LN:i:700	DP:f:18
+S	ctg_6	*	LN:i:1100	DP:f:30
+S	ctg_7	*	LN:i:800	DP:f:22
+S	ctg_8	*	LN:i:950	DP:f:27
+S	ctg_9	*	LN:i:1050	DP:f:29
+S	ctg_10	*	LN:i:1300	DP:f:33
+S	ctg_11	*	LN:i:850	DP:f:21
+S	ctg_12	*	LN:i:760	DP:f:19
+S	ctg_13	*	LN:i:980	DP:f:26
+S	ctg_14	*	LN:i:1120	DP:f:31
+S	ctg_15	*	LN:i:890	DP:f:23
+S	ctg_16	*	LN:i:1400	DP:f:36
+S	ctg_17	*	LN:i:770	DP:f:20
+S	ctg_18	*	LN:i:910	DP:f:24
+S	ctg_19	*	LN:i:1000	DP:f:28
+S	ctg_20	*	LN:i:1200	DP:f:32
+L	ctg_1	+	ctg_2	+	100M
+L	ctg_2	+	ctg_3	+	90M
+L	ctg_3	+	ctg_4	+	80M
+L	ctg_4	+	ctg_5	+	70M
+L	ctg_5	+	ctg_6	+	60M
+L	ctg_6	+	ctg_7	+	50M
+L	ctg_7	+	ctg_8	+	40M
+L	ctg_3	+	ctg_9	+	60M
+L	ctg_9	+	ctg_10	+	55M
+L	ctg_10	+	ctg_11	+	50M
+L	ctg_10	+	ctg_12	+	45M
+L	ctg_5	+	ctg_13	+	50M
+L	ctg_13	+	ctg_14	+	55M
+L	ctg_14	+	ctg_15	+	50M
+L	ctg_8	+	ctg_16	+	60M
+L	ctg_16	+	ctg_17	+	45M
+L	ctg_17	+	ctg_18	+	40M
+L	ctg_12	+	ctg_19	+	50M
+L	ctg_19	+	ctg_20	+	55M

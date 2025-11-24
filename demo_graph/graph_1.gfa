@@ -1,0 +1,10 @@
+H	VN:Z:1.0
+S	seg_1	*	LN:i:1000	DP:f:20
+S	seg_2	*	LN:i:800	DP:f:18
+S	seg_3	*	LN:i:1200	DP:f:25
+S	seg_4	*	LN:i:600	DP:f:15
+S	seg_5	*	LN:i:900	DP:f:22
+L	seg_1	+	seg_2	+	70M
+L	seg_2	+	seg_3	+	60M
+L	seg_3	+	seg_4	+	50M
+L	seg_2	+	seg_5	+	40M
