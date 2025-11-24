@@ -1,6 +1,6 @@
 import React, { useState, useRef, useMemo } from 'react';
 import { GraphSettings, ColorMode, AssemblyNode } from '../types';
-import { Settings, Activity, Layers, Share2, RefreshCw, ChevronDown, ChevronRight, Eye, Move, Type, Info, Upload, FileInput } from 'lucide-react';
+import { Settings, Activity, Layers, Share2, RefreshCw, ChevronDown, ChevronRight, Eye, Move, Type, Info, Upload, FileInput, Loader2 } from 'lucide-react';
 
 interface ControlPanelProps {
   settings: GraphSettings;
@@ -10,6 +10,7 @@ interface ControlPanelProps {
   isOpen: boolean;
   toggleOpen: () => void;
   selectedNodes: AssemblyNode[];
+  isLoading?: boolean;
 }
 
 const ControlSection: React.FC<{
@@ -47,7 +48,8 @@ const ControlPanel: React.FC<ControlPanelProps> = ({
   onImportGFA,
   isOpen,
   toggleOpen,
-  selectedNodes
+  selectedNodes,
+  isLoading = false
 }) => {
   const fileInputRef = useRef<HTMLInputElement>(null);
   const gfaInputRef = useRef<HTMLInputElement>(null);
@@ -104,6 +106,7 @@ const ControlPanel: React.FC<ControlPanelProps> = ({
   const handleGfaUpload = (event: React.ChangeEvent<HTMLInputElement>) => {
     const file = event.target.files?.[0];
     if (!file) return;
+    // Reset selected nodes before parsing
     const reader = new FileReader();
     reader.onload = (e) => {
       const text = e.target?.result as string;
@@ -142,7 +145,7 @@ const ControlPanel: React.FC<ControlPanelProps> = ({
       </div>
 
       {/* Scrollable Content */}
-      <div className="flex-1 overflow-y-auto custom-scrollbar">
+      <div className={`flex-1 overflow-y-auto custom-scrollbar ${isLoading ? 'opacity-50 pointer-events-none' : ''}`}>
         
         {/* Selection Info */}
         <div className="p-4 bg-blue-900/10 border-b border-blue-900/30">
@@ -199,10 +202,15 @@ const ControlPanel: React.FC<ControlPanelProps> = ({
               <label className="text-xs text-slate-400 mb-2 block">Import Data</label>
               <button
                 onClick={() => gfaInputRef.current?.click()}
-                className="w-full py-2 px-4 bg-blue-700 hover:bg-blue-600 text-white text-sm rounded-lg flex items-center justify-center gap-2 transition-colors border border-blue-600"
+                disabled={isLoading}
+                className={`w-full py-2 px-4 text-sm rounded-lg flex items-center justify-center gap-2 transition-colors border ${
+                   isLoading 
+                   ? 'bg-blue-800 text-slate-400 border-blue-900 cursor-not-allowed' 
+                   : 'bg-blue-700 hover:bg-blue-600 text-white border-blue-600'
+                }`}
               >
-                <FileInput size={14} />
-                Upload GFA File
+                {isLoading ? <Loader2 size={14} className="animate-spin"/> : <FileInput size={14} />}
+                {isLoading ? 'Parsing...' : 'Upload GFA File'}
               </button>
               <input 
                   type="file" 
@@ -210,6 +218,7 @@ const ControlPanel: React.FC<ControlPanelProps> = ({
                   onChange={handleGfaUpload}
                   accept=".gfa,.txt"
                   className="hidden"
+                  disabled={isLoading}
               />
             </div>
 
@@ -217,6 +226,7 @@ const ControlPanel: React.FC<ControlPanelProps> = ({
               <label className="text-xs text-slate-400 mb-2 block">Demo Data</label>
               <button
                 onClick={onRegenerate}
+                disabled={isLoading}
                 className="w-full py-2 px-4 bg-slate-700 hover:bg-slate-600 text-white text-sm rounded-lg flex items-center justify-center gap-2 transition-colors border border-slate-600"
               >
                 <RefreshCw size={14} />

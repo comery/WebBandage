@@ -513,8 +513,9 @@ const GraphVisualizer: React.FC<GraphVisualizerProps> = ({
   }, [isBrushMode, data, transform, onSelectionChange]);
 
   return (
-    <div className="relative w-full h-full bg-canvas overflow-hidden">
+    <div className="relative w-full h-full bg-canvas overflow-hidden print:overflow-visible">
       <svg
+        id="main-graph-svg"
         ref={svgRef}
         className={`w-full h-full block touch-none ${isBrushMode ? 'cursor-crosshair' : ''}`}
         width="100%"

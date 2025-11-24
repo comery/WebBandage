@@ -4,12 +4,13 @@ import ControlPanel from './components/ControlPanel';
 import { GraphData, GraphSettings, DEFAULT_SETTINGS, AssemblyNode } from './types';
 import { generateMockAssemblyGraph } from './services/graphGenerator';
 import { parseGFA } from './services/gfaParser';
-import { Download, Menu, X, FileText, Image, MousePointer2, BoxSelect } from 'lucide-react';
+import { Download, Menu, X, FileText, Image, MousePointer2, BoxSelect, Loader2 } from 'lucide-react';
 
 const App: React.FC = () => {
   const [data, setData] = useState<GraphData>(() => generateMockAssemblyGraph(40));
   const [settings, setSettings] = useState<GraphSettings>(DEFAULT_SETTINGS);
   const [isSidebarOpen, setIsSidebarOpen] = useState(true);
+  const [isLoading, setIsLoading] = useState(false);
   
   // Selection State
   const [selectedNodes, setSelectedNodes] = useState<AssemblyNode[]>([]);
@@ -20,7 +21,13 @@ const App: React.FC = () => {
     setSelectedNodes([]);
   }, []);
 
-  const handleGFAImport = useCallback((content: string) => {
+  const handleGFAImport = useCallback(async (content: string) => {
+    setIsLoading(true);
+    
+    // Use setTimeout to allow the UI to render the loading state before
+    // the heavy synchronous parsing logic blocks the main thread.
+    await new Promise(resolve => setTimeout(resolve, 100));
+
     try {
       const newData = parseGFA(content);
       setData(newData);
@@ -28,14 +35,32 @@ const App: React.FC = () => {
     } catch (e) {
       console.error("Failed to parse GFA", e);
       alert("Failed to parse GFA file. Please check the format.");
+    } finally {
+      setIsLoading(false);
     }
   }, []);
 
   const handleExportSvg = () => {
-    const svgElement = document.querySelector('svg');
-    if (!svgElement) return;
+    const svgElement = document.getElementById('main-graph-svg');
+    if (!svgElement) {
+      console.error("SVG element not found");
+      return;
+    }
     const clone = svgElement.cloneNode(true) as SVGSVGElement;
     clone.setAttribute("xmlns", "http://www.w3.org/2000/svg");
+    
+    // Inject a background rectangle so it's not transparent
+    const bgRect = document.createElementNS("http://www.w3.org/2000/svg", "rect");
+    bgRect.setAttribute("width", "100%");
+    bgRect.setAttribute("height", "100%");
+    bgRect.setAttribute("fill", "#0f172a"); // Match bg-canvas
+    // Insert as first child
+    if (clone.firstChild) {
+      clone.insertBefore(bgRect, clone.firstChild);
+    } else {
+      clone.appendChild(bgRect);
+    }
+
     const svgData = new XMLSerializer().serializeToString(clone);
     const blob = new Blob([svgData], { type: "image/svg+xml;charset=utf-8" });
     const url = URL.createObjectURL(blob);
@@ -48,12 +73,25 @@ const App: React.FC = () => {
   };
 
   const handleExportPdf = () => {
-    window.print();
+    // Use setTimeout to ensure the browser doesn't block the print dialog
+    // immediately after a click interaction in some contexts.
+    setTimeout(() => {
+      window.print();
+    }, 100);
   };
 
   return (
-    <div className="relative w-screen h-screen overflow-hidden bg-canvas text-white font-sans print:bg-white">
+    <div className="relative w-screen h-screen overflow-hidden bg-canvas text-white font-sans print:overflow-visible print:bg-white print:h-auto">
       
+      {/* Loading Overlay */}
+      {isLoading && (
+        <div className="absolute inset-0 z-50 flex flex-col items-center justify-center bg-slate-900/80 backdrop-blur-sm animate-in fade-in duration-200">
+          <Loader2 className="w-12 h-12 text-blue-500 animate-spin mb-4" />
+          <h2 className="text-xl font-semibold text-slate-200">Processing Graph Data...</h2>
+          <p className="text-slate-400 text-sm mt-2">Parsing nodes and links</p>
+        </div>
+      )}
+
       {/* Top Navigation / Tools Overlay */}
       <div className="absolute top-4 left-4 right-4 z-10 flex justify-between pointer-events-none print:hidden">
         <div className="pointer-events-auto flex gap-2">
@@ -116,12 +154,13 @@ const App: React.FC = () => {
           isOpen={isSidebarOpen}
           toggleOpen={() => setIsSidebarOpen(!isSidebarOpen)}
           selectedNodes={selectedNodes}
+          isLoading={isLoading}
         />
       </div>
 
       {/* Main Canvas Area */}
       <div 
-        className={`w-full h-full transition-all duration-300 ease-in-out ${isSidebarOpen ? 'pl-80' : 'pl-0'} print:pl-0`}
+        className={`w-full h-full transition-all duration-300 ease-in-out ${isSidebarOpen ? 'pl-80' : 'pl-0'} print:pl-0 print:h-auto print:overflow-visible`}
       >
         <GraphVisualizer 
           data={data} 
@@ -137,11 +176,35 @@ const App: React.FC = () => {
       <style>{`
         @media print {
           @page { size: landscape; margin: 0; }
-          body { -webkit-print-color-adjust: exact; }
-          .bg-canvas { background-color: white !important; }
+          body, html { 
+              visibility: visible !important; 
+              overflow: visible !important; 
+              height: 100% !important; 
+              width: 100% !important;
+              background: white !important;
+          }
+          .bg-canvas { 
+              background-color: white !important; 
+              position: relative !important;
+              height: auto !important;
+              width: 100% !important;
+              overflow: visible !important;
+          }
           text { fill: black !important; text-shadow: none !important; }
           path.contig { stroke-opacity: 0.8 !important; }
           path.edge { stroke: #000 !important; }
+          /* Ensure SVG is visible and scales to page */
+          svg { 
+              position: absolute !important;
+              top: 0 !important;
+              left: 0 !important;
+              width: 100% !important; 
+              height: 100% !important; 
+              overflow: visible !important;
+              display: block !important;
+          }
+          /* Hide UI */
+          .print\\:hidden { display: none !important; }
         }
       `}</style>
     </div>
